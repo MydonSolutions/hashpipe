@@ -1133,7 +1133,7 @@ struct hashpipe_ibv_recv_pkt * hashpipe_ibv_recv_pkts(
   struct ibv_qp *qp;
   struct ibv_qp_attr qp_attr;
   struct ibv_cq *ev_cq;
-  int ev_cq_ctx;
+  intptr_t ev_cq_ctx;
 #if HPIBV_USE_EXP_CQ
   struct ibv_exp_wc wc[WC_BATCH_SIZE];
 #else
@@ -1222,7 +1222,7 @@ struct hashpipe_ibv_recv_pkt * hashpipe_ibv_recv_pkts(
         fprintf(stderr,
             "wr %lu (%#016lx) got completion status 0x%x (%s) vendor error 0x%x (QP %d)\n",
             wr_id, wr_id, wc[i].status, ibv_wc_status_str(wc[i].status),
-            wc[i].vendor_err, ev_cq_ctx);
+            wc[i].vendor_err, (int)ev_cq_ctx);
         hibv_ctx->recv_pkt_buf[wr_id].length = 0;
       } else {
         // Copy byte_len from completion to length of pkt srtuct
