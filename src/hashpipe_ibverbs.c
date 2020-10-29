@@ -1081,7 +1081,11 @@ int hashpipe_ibv_flow(
         memset(flow.spec_eth.mask.dst_mac, 0xff, 6);
       }
       else{
-        fprintf(stderr, "Destination MAC cannot be NULL.\n"); // causes EINVAL [Invalid Argument]
+        fprintf(stderr, "Destination MAC cannot be NULL. "// causes EINVAL [Invalid Argument]
+                "Providing hibv_ctx->mac: %.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+                hibv_ctx->mac[0], hibv_ctx->mac[1], hibv_ctx->mac[2], hibv_ctx->mac[3], hibv_ctx->mac[4], hibv_ctx->mac[5]);
+        memcpy(flow.spec_eth.val.dst_mac, hibv_ctx->mac, 6);
+        memset(flow.spec_eth.mask.dst_mac, 0xff, 6);
       }
 
       if(src_mac) {
@@ -1133,7 +1137,7 @@ struct hashpipe_ibv_recv_pkt * hashpipe_ibv_recv_pkts(
   struct ibv_qp *qp;
   struct ibv_qp_attr qp_attr;
   struct ibv_cq *ev_cq;
-  intptr_t ev_cq_ctx;
+  int ev_cq_ctx;
 #if HPIBV_USE_EXP_CQ
   struct ibv_exp_wc wc[WC_BATCH_SIZE];
 #else
@@ -1222,7 +1226,7 @@ struct hashpipe_ibv_recv_pkt * hashpipe_ibv_recv_pkts(
         fprintf(stderr,
             "wr %lu (%#016lx) got completion status 0x%x (%s) vendor error 0x%x (QP %d)\n",
             wr_id, wr_id, wc[i].status, ibv_wc_status_str(wc[i].status),
-            wc[i].vendor_err, (int)ev_cq_ctx);
+            wc[i].vendor_err, ev_cq_ctx);
         hibv_ctx->recv_pkt_buf[wr_id].length = 0;
       } else {
         // Copy byte_len from completion to length of pkt srtuct
