@@ -1080,6 +1080,9 @@ int hashpipe_ibv_flow(
         memcpy(flow.spec_eth.val.dst_mac, dst_mac, 6);
         memset(flow.spec_eth.mask.dst_mac, 0xff, 6);
       }
+      else{
+        fprintf(stderr, "Destination MAC cannot be NULL.\n"); // causes EINVAL [Invalid Argument]
+      }
 
       if(src_mac) {
         memcpy(flow.spec_eth.val.src_mac, src_mac, 6);
@@ -1103,11 +1106,12 @@ int hashpipe_ibv_flow(
   } // switch(flow_type)
 
   // Create flow for each QP
+  struct ibv_flow_attr *ibv_flw = (struct ibv_flow_attr *)&flow;
   for(i=0; i<hibv_ctx->nqp; i++) {
     j = i*hibv_ctx->max_flows + flow_idx;
 
     if(!(hibv_ctx->ibv_flows[j] =
-          ibv_create_flow(hibv_ctx->qp[i], (struct ibv_flow_attr *)&flow))) {
+          ibv_create_flow(hibv_ctx->qp[i], ibv_flw))) {
       return 1;
     }
   }
