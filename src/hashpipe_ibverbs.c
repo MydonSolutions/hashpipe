@@ -872,6 +872,9 @@ int hashpipe_ibv_flow(
       return 1;
   } // switch(flow_type)
 
+  // struct ibv_flow_attr *flow_attr = (struct ibv_flow_attr *) malloc(sizeof(struct ibv_flow_attr));
+  // memcpy(flow_attr, &flow, sizeof(struct ibv_flow_attr));
+
   if(!(hibv_ctx->ibv_flows[flow_idx] =
         ibv_create_flow(hibv_ctx->qp, (struct ibv_flow_attr *)&flow))) {
     return 1;

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/mman.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/sem.h>
@@ -19,6 +20,19 @@
 #include "hashpipe_status.h"
 #include "hashpipe_databuf.h"
 #include "hashpipe_error.h"
+
+/* These defines are missing in Ubuntu 16.04 <sys/shm.h>, but can be found in
+ * /usr/src/linux-headers-4.4.0-67/include/linux/shm.h
+*/
+#ifndef SHM_HUGE_SHIFT
+#define SHM_HUGE_SHIFT  26
+#endif
+#ifndef SHM_HUGE_2MB
+#define SHM_HUGE_2MB    (21 << SHM_HUGE_SHIFT)
+#endif
+#ifndef SHM_HUGE_1GB
+#define SHM_HUGE_1GB    (30 << SHM_HUGE_SHIFT)
+#endif
 
 /* union for semaphore ops. */
 union semun {
@@ -33,7 +47,9 @@ hashpipe_databuf_t *hashpipe_databuf_create(int instance_id,
 {
     int rv = 0;
     int verify_sizing = 0;
+    int newly_created = 0;
     size_t total_size = header_size + block_size*n_block;
+    size_t total_size_page_aligned;
 
     if(header_size < sizeof(hashpipe_databuf_t)) {
         hashpipe_error(__FUNCTION__, "header size must be larger than %lu",
@@ -48,14 +64,47 @@ hashpipe_databuf_t *hashpipe_databuf_create(int instance_id,
         return NULL;
     }
     int shmid;
-    shmid = shmget(key + databuf_id - 1, total_size, 0666 | IPC_CREAT | IPC_EXCL);
-    if (shmid==-1 && errno == EEXIST) {
-        printf("%s: shared memory key %08x already exists", __FUNCTION__,
+    // First try 1 GB pages
+    hashpipe_info(__FUNCTION__, "total_size %lu", total_size);
+    total_size_page_aligned = total_size + ((-total_size) % (1<<30));
+    hashpipe_info(__FUNCTION__, "total_size 1GB aligned %lu (%lx)",
+        total_size_page_aligned, total_size_page_aligned);
+    shmid = shmget(key + databuf_id - 1, total_size_page_aligned, 0666 |
+        IPC_CREAT | IPC_EXCL | SHM_HUGETLB | SHM_HUGE_1GB);
+    if (shmid != -1) {
+      hashpipe_info(__FUNCTION__, "created shared memory for key %08x with 1GB pages",
+          key + databuf_id - 1);
+      newly_created = 1;
+    } else if (errno == EEXIST) {
+        hashpipe_info(__FUNCTION__, "shared memory key %08x already exists",
             key + databuf_id - 1);
         // Already exists, call shmget again without IPC_CREAT
         shmid = shmget(key + databuf_id - 1, total_size, 0666);
         // Verify buffer sizing
         verify_sizing = 1;
+    } else if(errno == ENOMEM) {
+        // Try with 2MB pages
+        total_size_page_aligned = total_size + ((-total_size) % (1<<21));
+        hashpipe_info(__FUNCTION__, "total_size 2MB aligned %lu (%lx)",
+            total_size_page_aligned, total_size_page_aligned);
+        shmid = shmget(key + databuf_id - 1, total_size_page_aligned, 0666 |
+            IPC_CREAT | IPC_EXCL | SHM_HUGETLB | SHM_HUGE_2MB);
+        if (shmid != -1) {
+          hashpipe_info(__FUNCTION__,
+              "created shared memory for key %08x with 2MB pages",
+              key + databuf_id - 1);
+          newly_created = 1;
+        } else if (errno == ENOMEM) {
+            // Try without huge pages
+            shmid = shmget(key + databuf_id - 1, total_size, 0666 |
+                IPC_CREAT | IPC_EXCL);
+            if (shmid != -1) {
+              hashpipe_info(__FUNCTION__,
+                  "created shared memory for key %08x without huge pages",
+                  key + databuf_id - 1);
+              newly_created = 1;
+            }
+        }
     }
     if (shmid==-1) {
         perror("shmget");
@@ -87,7 +136,17 @@ hashpipe_databuf_t *hashpipe_databuf_create(int instance_id,
             }
             return NULL;
         }
-    } else {
+    }
+
+    /* Try to lock in memory */
+    rv = shmctl(shmid, SHM_LOCK, NULL);
+    if (rv==-1) {
+        perror("shmctl");
+        hashpipe_error(__FUNCTION__, "Error locking shared memory.");
+        return NULL;
+    }
+
+    if(newly_created) {
       /* Zero out newly created databuf */
       memset(d, 0, total_size);
 
@@ -98,14 +157,6 @@ hashpipe_databuf_t *hashpipe_databuf_create(int instance_id,
       d->n_block = n_block;
       d->block_size = block_size;
       sprintf(d->data_type, "unknown");
-    }
-
-    /* Try to lock in memory */
-    rv = shmctl(shmid, SHM_LOCK, NULL);
-    if (rv==-1) {
-        perror("shmctl");
-        hashpipe_error(__FUNCTION__, "Error locking shared memory.");
-        return NULL;
     }
 
     /* Get semaphores set up */
@@ -230,17 +281,15 @@ uint64_t hashpipe_databuf_total_mask(hashpipe_databuf_t *d)
     return tot;
 }
 
-int hashpipe_databuf_wait_free(hashpipe_databuf_t *d, int block_id)
+int hashpipe_databuf_wait_free_timeout(hashpipe_databuf_t *d, int block_id,
+    struct timespec *timeout)
 {
     int rv;
     struct sembuf op;
     op.sem_num = block_id;
     op.sem_op = 0;
     op.sem_flg = 0;
-    struct timespec timeout;
-    timeout.tv_sec = 0;
-    timeout.tv_nsec = 250000000;
-    rv = semtimedop(d->semid, &op, 1, &timeout);
+    rv = semtimedop(d->semid, &op, 1, timeout);
     if (rv==-1) {
         if (errno==EAGAIN) {
 #ifdef HASHPIPE_TRACE
@@ -256,6 +305,14 @@ int hashpipe_databuf_wait_free(hashpipe_databuf_t *d, int block_id)
         return HASHPIPE_ERR_SYS;
     }
     return 0;
+}
+
+int hashpipe_databuf_wait_free(hashpipe_databuf_t *d, int block_id)
+{
+    struct timespec timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_nsec = 250000000;
+    return hashpipe_databuf_wait_free_timeout(d, block_id, &timeout);
 }
 
 int hashpipe_databuf_busywait_free(hashpipe_databuf_t *d, int block_id)
@@ -281,7 +338,8 @@ int hashpipe_databuf_busywait_free(hashpipe_databuf_t *d, int block_id)
     return 0;
 }
 
-int hashpipe_databuf_wait_filled(hashpipe_databuf_t *d, int block_id)
+int hashpipe_databuf_wait_filled_timeout(hashpipe_databuf_t *d, int block_id,
+    struct timespec *timeout)
 {
     /* This needs to wait for the semval of the given block
      * to become > 0, but NOT immediately decrement it to 0.
@@ -296,10 +354,7 @@ int hashpipe_databuf_wait_filled(hashpipe_databuf_t *d, int block_id)
     op[0].sem_flg = op[1].sem_flg = 0;
     op[0].sem_op = -1;
     op[1].sem_op = 1;
-    struct timespec timeout;
-    timeout.tv_sec = 0;
-    timeout.tv_nsec = 250000000;
-    rv = semtimedop(d->semid, op, 2, &timeout);
+    rv = semtimedop(d->semid, op, 2, timeout);
     if (rv==-1) {
         if (errno==EAGAIN) return HASHPIPE_TIMEOUT;
         // Don't complain on a signal interruption
@@ -310,6 +365,16 @@ int hashpipe_databuf_wait_filled(hashpipe_databuf_t *d, int block_id)
     }
     return 0;
 }
+
+int hashpipe_databuf_wait_filled(hashpipe_databuf_t *d, int block_id)
+{
+    struct timespec timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_nsec = 250000000;
+
+    return hashpipe_databuf_wait_filled_timeout(d, block_id, &timeout);
+}
+
 
 int hashpipe_databuf_busywait_filled(hashpipe_databuf_t *d, int block_id)
 {
