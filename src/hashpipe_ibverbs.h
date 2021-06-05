@@ -185,9 +185,10 @@ int hashpipe_ibv_get_interface_info(
 // NOTE: This is a low-level function intended for internal use.  Most users
 // will want to use `hashpipe_ibv_init()` instead.
 int hashpipe_ibv_open_device_for_interface_id(
-    uint64_t              interface_id,
-    struct ibv_context ** found_ctx,
-    uint8_t             * found_port);
+    uint64_t                 interface_id,
+    struct ibv_context    ** found_ctx,
+    uint8_t                * found_port,
+    struct ibv_device_attr * found_device_attr);
 
 // The `hashpipe_ibv_init()` funciton sets up the data structures necessary for
 // initiating raw packet flows using ibverbs.  When this function returns

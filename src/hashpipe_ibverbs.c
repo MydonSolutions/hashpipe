@@ -99,9 +99,10 @@ int hashpipe_ibv_get_interface_info(
 
 // See comments in header file for details about this function.
 int hashpipe_ibv_open_device_for_interface_id(
-    uint64_t              interface_id,
-    struct ibv_context ** found_ctx,
-    uint8_t             * found_port)
+    uint64_t                 interface_id,
+    struct ibv_context    ** found_ctx,
+    uint8_t                * found_port,
+    struct ibv_device_attr * found_device_attr)
 {
   int retval = 1;
   int devidx;
@@ -110,7 +111,7 @@ int hashpipe_ibv_open_device_for_interface_id(
   int num_devices;
   struct ibv_device      ** dev_list;
   struct ibv_context      * ibv_ctx = NULL;
-  struct ibv_device_attr    ibv_device_attr;
+  struct ibv_device_attr  * ibv_device_attr = found_device_attr ? found_device_attr : malloc(sizeof(struct ibv_device_attr));
   struct ibv_port_attr      ibv_port_attr;
   union  ibv_gid            ibv_gid;
 
@@ -138,7 +139,7 @@ int hashpipe_ibv_open_device_for_interface_id(
     }
 
     // Query device
-    if(ibv_query_device(ibv_ctx, &ibv_device_attr)) {
+    if(ibv_query_device(ibv_ctx, ibv_device_attr)) {
       perror("ibv_query_device");
       fprintf(stderr, "error querying device %s\n", dev_list[devidx]->name);
       if(ibv_close_device(ibv_ctx) == -1) {
@@ -149,7 +150,7 @@ int hashpipe_ibv_open_device_for_interface_id(
     }
 
     // For each port of device
-    for(portidx=1; portidx<=ibv_device_attr.phys_port_cnt; portidx++) {
+    for(portidx=1; portidx<=ibv_device_attr->phys_port_cnt; portidx++) {
       // Query port
       if(ibv_query_port(ibv_ctx, portidx, &ibv_port_attr)) {
         perror("ibv_query_port");
@@ -185,7 +186,7 @@ int hashpipe_ibv_open_device_for_interface_id(
     } // for each port
 
     // Break out of this loop if found, otherwise close device
-    if(portidx <= ibv_device_attr.phys_port_cnt) {
+    if(portidx <= ibv_device_attr->phys_port_cnt) {
       // Found desired port!
       break;
     } else if(ibv_close_device(ibv_ctx) == -1) {
@@ -206,6 +207,10 @@ int hashpipe_ibv_open_device_for_interface_id(
     // Save port
     if(found_port) {
       *found_port = portidx;
+    }
+    // free ibv_device_attr
+    if(!found_device_attr) {
+      free(ibv_device_attr);
     }
     // Success
     retval = 0;
@@ -315,7 +320,8 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
   if((errsv = hashpipe_ibv_open_device_for_interface_id(
         hibv_ctx->interface_id,
         &hibv_ctx->ctx,
-        &hibv_ctx->port_num))) {
+        &hibv_ctx->port_num,
+        NULL))) {
     if(errsv == 1) {
       perror("hashpipe_ibv_init");
     }
