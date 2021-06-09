@@ -208,16 +208,17 @@ int hashpipe_ibv_open_device_for_interface_id(
     if(found_port) {
       *found_port = portidx;
     }
-    // free ibv_device_attr
-    if(!found_device_attr) {
-      free(ibv_device_attr);
-    }
     // Success
     retval = 0;
   }
 
 clean_devlist:
   ibv_free_device_list(dev_list);
+  
+  // free ibv_device_attr
+  if(!found_device_attr) {
+    free(ibv_device_attr);
+  }
 
   // Set errno if we are not returning success
   if(retval) {
