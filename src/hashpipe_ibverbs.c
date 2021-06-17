@@ -546,13 +546,11 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
   hibv_ctx->send_pkt_buf[hibv_ctx->send_pkt_num-1].wr.next = NULL;
   hibv_ctx->send_pkt_head = hibv_ctx->send_pkt_buf;
 
-  // Unlink recv work requests
   for(i=0; i<hibv_ctx->recv_pkt_num; i++) {
+    // Unlink recv work requests
     hibv_ctx->recv_pkt_buf[i].wr.next = NULL;
-  }
 
-  // Post receive work requests
-  for(i=0; i<hibv_ctx->recv_pkt_num; i++) {
+    // Post receive work requests
     if(ibv_post_recv(hibv_ctx->qp,
           &hibv_ctx->recv_pkt_buf[i].wr, &recv_wr_bad)) {
       perror("ibv_post_recv");
