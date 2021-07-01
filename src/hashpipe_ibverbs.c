@@ -1035,10 +1035,6 @@ struct hashpipe_ibv_recv_pkt * hashpipe_ibv_recv_pkts(
           perror("ibv_post_recv");
           // Probably not going to end well if we get here,
           // but we will soldier on anyway...
-
-          //actually, don't soldier on
-          errno = EIO;
-          return NULL;
         }
         // Probably not going to end well if we get here either,
         // but we will soldier on anyway...
