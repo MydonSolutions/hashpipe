@@ -244,7 +244,6 @@ clean_devlist:
 int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
 {
   int i, j;
-  uint64_t k;
   int flags;
   int errsv;
   int send_flags = 0;
@@ -536,17 +535,15 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
     }
   } // not user_managed
   else{
-    k=0;
     for(i=0; i<hibv_ctx->send_pkt_num; i++) {
       for(j=0; j<hibv_ctx->send_pkt_buf[i].wr.num_sge; j++){
-        hibv_ctx->send_sge_buf[k++].lkey = hibv_ctx->send_mr->lkey;
+        hibv_ctx->send_pkt_buf[i].wr.sg_list[j].lkey = hibv_ctx->send_mr->lkey;
       }
     }
-    k=0;
     // Assume first recv_mr is used first
     for(i=0; i<hibv_ctx->recv_pkt_num; i++) {
       for(j=0; j<hibv_ctx->recv_pkt_buf[i].wr.num_sge; j++){
-        hibv_ctx->recv_sge_buf[k++].lkey = hibv_ctx->recv_mrs[0]->lkey;
+        hibv_ctx->recv_pkt_buf[i].wr.sg_list[j].lkey = hibv_ctx->recv_mrs[0]->lkey;
       }
     }
   } // user_managed
