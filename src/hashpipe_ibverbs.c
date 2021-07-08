@@ -497,9 +497,12 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
   }
 
   hibv_ctx->recv_mrs = malloc(hibv_ctx->recv_mr_num * sizeof(struct ibv_mr*));
+  if(hibv_ctx->recv_pkt_per_mr_buf < hibv_ctx->recv_pkt_num){
+    hibv_ctx->recv_pkt_per_mr_buf = hibv_ctx->recv_pkt_num;
+  }
   for(i=0; i<hibv_ctx->recv_mr_num; i++){
     if(!(hibv_ctx->recv_mrs[i] = ibv_reg_mr(hibv_ctx->pd, hibv_ctx->recv_mr_bufs[i],
-            hibv_ctx->recv_pkt_num * hibv_ctx->pkt_size_max,
+            hibv_ctx->recv_pkt_per_mr_buf * hibv_ctx->pkt_size_max,
             IBV_ACCESS_LOCAL_WRITE))) {
 
       fprintf(stderr, "ibv_reg_mr[recv_mrs #%d]: ", i);

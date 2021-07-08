@@ -98,6 +98,7 @@ struct hashpipe_ibv_context {
   // library or advanced user.
   uint8_t                      * send_mr_buf;
   uint8_t                      **recv_mr_bufs; // should be recv_mr_num pointers
+  uint32_t                       recv_pkt_per_mr_buf;
 
   // Send and receive memory regions that have been registered with `pd`.
   // Managed by library.
