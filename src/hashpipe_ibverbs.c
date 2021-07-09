@@ -479,6 +479,7 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
       perror("calloc(ibv_send_mr)");
       goto cleanup_and_return_error;
     }
+    hibv_ctx->send_mr_size = hibv_ctx->send_pkt_num * hibv_ctx->pkt_size_max;
     
     hibv_ctx->recv_mr_num = 1;
     hibv_ctx->recv_mr_bufs = malloc(hibv_ctx->recv_mr_num * sizeof(uint8_t *));
@@ -487,22 +488,20 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
       perror("calloc(ibv_recv_mr)");
       goto cleanup_and_return_error;
     }
+    hibv_ctx->recv_mr_size = hibv_ctx->recv_pkt_num * hibv_ctx->pkt_size_max;
   }
 
   // Register send and receive memory regions
   if(!(hibv_ctx->send_mr = ibv_reg_mr(hibv_ctx->pd, hibv_ctx->send_mr_buf,
-          hibv_ctx->send_pkt_num * hibv_ctx->pkt_size_max, 0))) {
+          hibv_ctx->send_mr_size, 0))) {
     perror("ibv_reg_mr[send]");
     goto cleanup_and_return_error;
   }
 
   hibv_ctx->recv_mrs = malloc(hibv_ctx->recv_mr_num * sizeof(struct ibv_mr*));
-  if(hibv_ctx->recv_pkt_per_mr_buf < hibv_ctx->recv_pkt_num){
-    hibv_ctx->recv_pkt_per_mr_buf = hibv_ctx->recv_pkt_num;
-  }
   for(i=0; i<hibv_ctx->recv_mr_num; i++){
     if(!(hibv_ctx->recv_mrs[i] = ibv_reg_mr(hibv_ctx->pd, hibv_ctx->recv_mr_bufs[i],
-            hibv_ctx->recv_pkt_per_mr_buf * hibv_ctx->pkt_size_max,
+            hibv_ctx->recv_mr_size,
             IBV_ACCESS_LOCAL_WRITE))) {
 
       fprintf(stderr, "ibv_reg_mr[recv_mrs #%d]: ", i);
