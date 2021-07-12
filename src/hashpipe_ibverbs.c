@@ -288,14 +288,9 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
       perror("hashpipe_ibv_init[send_mr_buf]");
       return 1;
     }
-    if(!hibv_ctx->recv_mr_bufs) {
+    if(!hibv_ctx->recv_mr_buf) {
       errno = EINVAL;
-      perror("hashpipe_ibv_init[recv_mr_bufs]");
-      return 1;
-    }
-    if(!hibv_ctx->recv_mr_num) {
-      errno = EINVAL;
-      perror("hashpipe_ibv_init[recv_mr_num]");
+      perror("hashpipe_ibv_init[recv_mr_buf]");
       return 1;
     }
   }
@@ -321,15 +316,15 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
   hibv_ctx->qp = NULL;
   hibv_ctx->send_pkt_head = NULL;
   hibv_ctx->send_mr = NULL;
-  hibv_ctx->recv_mrs= NULL;
+  hibv_ctx->recv_mr = NULL;
   hibv_ctx->mcast_subscriber = -1;
   if(!hibv_ctx->user_managed_flag) {
     hibv_ctx->send_pkt_buf = NULL;
     hibv_ctx->recv_pkt_buf = NULL;
     hibv_ctx->send_sge_buf = NULL;
     hibv_ctx->recv_sge_buf = NULL;
-    hibv_ctx->send_mr_buf  = NULL;
-    hibv_ctx->recv_mr_bufs = NULL;
+    hibv_ctx->send_mr_buf = NULL;
+    hibv_ctx->recv_mr_buf = NULL;
   }
 
   // Open IBV device for interface_id.
@@ -480,10 +475,7 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
       goto cleanup_and_return_error;
     }
     hibv_ctx->send_mr_size = hibv_ctx->send_pkt_num * hibv_ctx->pkt_size_max;
-    
-    hibv_ctx->recv_mr_num = 1;
-    hibv_ctx->recv_mr_bufs = malloc(hibv_ctx->recv_mr_num * sizeof(uint8_t *));
-    if(!(hibv_ctx->recv_mr_bufs[0] = (uint8_t *)
+    if(!(hibv_ctx->recv_mr_buf = (uint8_t *)
           calloc(hibv_ctx->recv_pkt_num, hibv_ctx->pkt_size_max))) {
       perror("calloc(ibv_recv_mr)");
       goto cleanup_and_return_error;
@@ -498,16 +490,11 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
     goto cleanup_and_return_error;
   }
 
-  hibv_ctx->recv_mrs = malloc(hibv_ctx->recv_mr_num * sizeof(struct ibv_mr*));
-  for(i=0; i<hibv_ctx->recv_mr_num; i++){
-    if(!(hibv_ctx->recv_mrs[i] = ibv_reg_mr(hibv_ctx->pd, hibv_ctx->recv_mr_bufs[i],
-            hibv_ctx->recv_mr_size,
-            IBV_ACCESS_LOCAL_WRITE))) {
-
-      fprintf(stderr, "ibv_reg_mr[recv_mrs #%d]: ", i);
-      perror("");
-      goto cleanup_and_return_error;
-    }
+  if(!(hibv_ctx->recv_mr = ibv_reg_mr(hibv_ctx->pd, hibv_ctx->recv_mr_buf,
+          hibv_ctx->recv_mr_size,
+          IBV_ACCESS_LOCAL_WRITE))) {
+    perror("ibv_reg_mr[recv]");
+    goto cleanup_and_return_error;
   }
 
   // Initilize work requests and scatter/gather elements unless user managed.
@@ -531,9 +518,9 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
       hibv_ctx->recv_pkt_buf[i].wr.num_sge = 1;
 
       hibv_ctx->recv_sge_buf[i].addr = (uint64_t)
-        hibv_ctx->recv_mr_bufs[0] + i * hibv_ctx->pkt_size_max;
+        hibv_ctx->recv_mr_buf + i * hibv_ctx->pkt_size_max;
       hibv_ctx->recv_sge_buf[i].length = hibv_ctx->pkt_size_max;
-      hibv_ctx->recv_sge_buf[i].lkey = hibv_ctx->recv_mrs[0]->lkey;
+      hibv_ctx->recv_sge_buf[i].lkey = hibv_ctx->recv_mr->lkey;
     }
   } // not user_managed
   else{
@@ -545,7 +532,7 @@ int hashpipe_ibv_init(struct hashpipe_ibv_context * hibv_ctx)
     // Assume first recv_mr is used first
     for(i=0; i<hibv_ctx->recv_pkt_num; i++) {
       for(j=0; j<hibv_ctx->recv_pkt_buf[i].wr.num_sge; j++){
-        hibv_ctx->recv_pkt_buf[i].wr.sg_list[j].lkey = hibv_ctx->recv_mrs[0]->lkey;
+        hibv_ctx->recv_pkt_buf[i].wr.sg_list[j].lkey = hibv_ctx->recv_mr->lkey;
       }
     }
   } // user_managed
@@ -659,15 +646,11 @@ int hashpipe_ibv_shutdown(struct hashpipe_ibv_context * hibv_ctx)
   }
   hibv_ctx->send_mr = NULL;
 
-  for(i=0; i<hibv_ctx->recv_mr_num; i++){
-    if(hibv_ctx->recv_mrs[i] && ibv_dereg_mr(hibv_ctx->recv_mrs[i])) {
-      fprintf(stderr, "ibv_dereg_mr(recv_mrs #%d): ", i);
-      perror("");
-      rc++;
-    }
+  if(hibv_ctx->recv_mr && ibv_dereg_mr(hibv_ctx->recv_mr)) {
+    perror("ibv_dereg_mr(recv_mr)");
+    rc++;
   }
-  free(hibv_ctx->recv_mrs);
-  hibv_ctx->recv_mrs = NULL;
+  hibv_ctx->recv_mr = NULL;
 
   if(hibv_ctx->qp && ibv_destroy_qp(hibv_ctx->qp)) {
     perror("ibv_destroy_qp");
@@ -739,15 +722,9 @@ int hashpipe_ibv_shutdown(struct hashpipe_ibv_context * hibv_ctx)
       free(hibv_ctx->send_mr_buf);
       hibv_ctx->send_mr_buf = NULL;
     }
-    if(hibv_ctx->recv_mr_bufs){
-      for(i=0; i<hibv_ctx->recv_mr_num; i++){
-        if(hibv_ctx->recv_mr_bufs[i]) {
-          free(hibv_ctx->recv_mr_bufs[i]);
-          hibv_ctx->recv_mr_bufs[i] = NULL;
-        }
-      }
-      free(hibv_ctx->recv_mr_bufs);
-      hibv_ctx->recv_mr_bufs = NULL;
+    if(hibv_ctx->recv_mr_buf) {
+      free(hibv_ctx->recv_mr_buf);
+      hibv_ctx->recv_mr_buf = NULL;
     }
   } // not user managed
 
