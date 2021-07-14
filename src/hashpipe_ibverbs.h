@@ -97,14 +97,15 @@ struct hashpipe_ibv_context {
   // Send and receive memory region buffersi (i.e.packet buffers).  Managed by
   // library or advanced user.
   uint8_t                      * send_mr_buf;
-  uint8_t                      * recv_mr_buf;
+  uint8_t                      **recv_mr_bufs; // should be recv_mr_num pointers
   size_t                         send_mr_size;
   size_t                         recv_mr_size;
 
   // Send and receive memory regions that have been registered with `pd`.
   // Managed by library.
   struct ibv_mr                * send_mr;
-  struct ibv_mr                * recv_mr;
+  struct ibv_mr                **recv_mrs;
+  uint8_t                        recv_mr_num; 
 
   // Number of send and receive packets to buffer.  Specified by user.
   uint32_t                       send_pkt_num;
